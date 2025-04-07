@@ -19,7 +19,7 @@ Our implementation of Dream is based on the [Huggingface `transformers`](https:/
 
 Run the model requires a GPU with at least 20GB memory. 
 
-Thanks Apolinário for providing the online demo at https://huggingface.co/spaces/multimodalart/Dream.
+Thanks [Apolinário](https://github.com/apolinario) for providing the online demo at https://huggingface.co/spaces/multimodalart/Dream.
 
 ## Usage
 We provide several demos to show the inference code of Dream. A simple implementation is:
