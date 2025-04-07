@@ -9,6 +9,7 @@ import gradio as gr
 from transformers import AutoModel, AutoTokenizer
 import copy
 import traceback
+import threading  # 用于并行执行模型推理
 
 # --- Model Loading ---
 model_path = "Dream-org/Dream-v0-Instruct-7B"
@@ -16,7 +17,6 @@ device = 'cuda' if torch.cuda.is_available() else 'cpu'
 print(f"Using device: {device}")
 
 try:
-    # --- Use float32 for stability ---
     print("Loading model with float32...")
     dtype = torch.float32
     model = AutoModel.from_pretrained(model_path, torch_dtype=dtype, trust_remote_code=True)
@@ -35,7 +35,7 @@ except Exception as e:
     print(traceback.format_exc())
     exit()
 
-# Define mask token parameters for visualization
+# 定义mask token相关参数
 mask_token_id = tokenizer.mask_token_id if tokenizer.mask_token_id is not None else -100
 mask_token_str = "[MASK]"
 
@@ -65,7 +65,7 @@ def add_user_message_to_gradio_history(history, message):
         history = []
     return history + [[message, None]]
 
-# --- Main Generation Function with Visualization ---
+# --- Modified Main Generation Function with Real-Time Visualization ---
 def dream_generate_with_visualization(history, max_new_tokens, steps, temperature, top_p, top_k, delay):
     print("\n--- Starting dream_generate_with_visualization ---")
     print(f"Parameters: max_new_tokens={max_new_tokens}, steps={steps}, temperature={temperature}, top_p={top_p}, top_k={top_k}, delay={delay}")
@@ -73,7 +73,9 @@ def dream_generate_with_visualization(history, max_new_tokens, steps, temperatur
     messages_for_model = format_gradio_history_to_messages(history)
 
     try:
-        inputs = tokenizer.apply_chat_template(messages_for_model, return_tensors="pt", return_dict=True, add_generation_prompt=True)
+        inputs = tokenizer.apply_chat_template(
+            messages_for_model, return_tensors="pt", return_dict=True, add_generation_prompt=True
+        )
         input_ids = inputs.input_ids.to(device)
         attention_mask = inputs.attention_mask.to(device)
         prompt_length = input_ids.shape[1]
@@ -89,96 +91,96 @@ def dream_generate_with_visualization(history, max_new_tokens, steps, temperatur
         yield format_gradio_history_to_messages(current_history), error_message, current_history
         return
 
+    # 存储中间状态列表
     visualization_token_states = []
-    hook_call_count = 0
-
-    # Hook to save intermediate token states
+    # Hook函数：在生成过程中保存中间状态
     def my_generation_tokens_hook(step, x, logits):
-        nonlocal hook_call_count
-        hook_call_count += 1
         visualization_token_states.append(x[0].clone().cpu())
         return x
 
     effective_top_k = top_k if top_k > 0 else None
 
-    print("Calling model.diffusion_generate...")
-    start_time = time.time()
-    output = None
-    try:
-        print(f"Model device before generate: {next(model.parameters()).device}")
-        output = model.diffusion_generate(
-            input_ids,
-            attention_mask=attention_mask,
-            max_new_tokens=max_new_tokens,
-            output_history=False,
-            return_dict_in_generate=True,
-            steps=steps,
-            temperature=temperature,
-            top_p=top_p,
-            top_k=effective_top_k,
-            generation_tokens_hook_func=my_generation_tokens_hook
-        )
-        end_time = time.time()
-        print(f"model.diffusion_generate finished in {end_time - start_time:.2f} seconds.")
-    except Exception as e:
-        print(f"Error during diffusion_generate: {e}")
-        tb_str = traceback.format_exc()
-        print(f"Traceback:\n{tb_str}")
-        error_detail = str(e)
-        if "illegal memory access" in error_detail.lower():
-            error_message = (
-                "Model generation error (CUDA Illegal Memory Access).\n"
-                "Possible reasons:\n"
-                "- 'Diffusion Steps'/'Max New Tokens' might be too high.\n"
-                "- Model code and current environment (driver/CUDA/PyTorch) are incompatible.\n"
-                "- Using float32 might cause issues if switching from bfloat16/float16.\n"
-                "Try lowering 'Diffusion Steps' and 'Max New Tokens', updating your drivers, or checking model issues."
-            )
-        else:
-            error_message = f"Unknown error during model generation: {e}"
+    # 用于保存最终输出或错误信息
+    output_container = {}
 
+    # 定义推理函数，运行模型生成
+    def generation_func():
+        try:
+            output = model.diffusion_generate(
+                input_ids,
+                attention_mask=attention_mask,
+                max_new_tokens=max_new_tokens,
+                output_history=False,
+                return_dict_in_generate=True,
+                steps=steps,
+                temperature=temperature,
+                top_p=top_p,
+                top_k=effective_top_k,
+                generation_tokens_hook_func=my_generation_tokens_hook
+            )
+            output_container["output"] = output
+        except Exception as e:
+            output_container["error"] = e
+
+    # 开启新线程进行模型推理
+    gen_thread = threading.Thread(target=generation_func)
+    gen_thread.start()
+
+    # 初始化中间显示变量
+    intermediate_history = copy.deepcopy(history)
+    # 确定生成部分的长度
+    while len(visualization_token_states) == 0:
+        time.sleep(0.01)  # 等待第一个状态产生
+    first_state = visualization_token_states[0]
+    gen_length = first_state.shape[0] - prompt_length
+    previous_tokens = [mask_token_id] * gen_length
+    last_yielded = 0
+
+    # 主循环：不断检查是否有新的中间状态
+    while gen_thread.is_alive() or last_yielded < len(visualization_token_states):
+        current_length = len(visualization_token_states)
+        while last_yielded < current_length:
+            state_tensor = visualization_token_states[last_yielded]
+            current_state_tensor = state_tensor[prompt_length:]
+            current_tokens = current_state_tensor.tolist()
+            colored_tokens = []
+            # 构造彩色的token列表
+            for idx, token_id in enumerate(current_tokens):
+                if token_id == mask_token_id:
+                    colored_tokens.append((mask_token_str, "#444444"))
+                else:
+                    if previous_tokens[idx] == mask_token_id:
+                        token_str = tokenizer.decode([token_id], skip_special_tokens=True)
+                        colored_tokens.append((token_str, "#66CC66"))
+                    else:
+                        token_str = tokenizer.decode([token_id], skip_special_tokens=True)
+                        colored_tokens.append((token_str, "#6699CC"))
+            previous_tokens = current_tokens
+            # 更新最后显示的对话记录（可选：这里仅更新最后一步提示）
+            intermediate_history[-1][1] = f"⏳ Step {last_yielded}/{current_length - 1}"
+            messages_for_chatbot_update = format_gradio_history_to_messages(intermediate_history)
+            yield messages_for_chatbot_update, colored_tokens, history
+            last_yielded += 1
+        time.sleep(delay)
+
+    # 确保线程结束
+    gen_thread.join()
+
+    # 检查是否有错误
+    if "error" in output_container:
+        error_message = f"Error during model generation: {output_container['error']}"
         current_history = copy.deepcopy(history)
         if current_history:
             current_history[-1][1] = f"Error: {error_message}"
         else:
             current_history = [["System", f"Error: {error_message}"]]
         yield format_gradio_history_to_messages(current_history), error_message, current_history
-        print("--- Exiting dream_generate_with_visualization due to error ---")
         return
 
-    # --- Intermediate Yield Loop with Colored Boxes ---
-    intermediate_history = copy.deepcopy(history)
-    num_states_to_process = len(visualization_token_states)
-    print(f"Starting intermediate yield loop for {num_states_to_process - 1} states...")
-
-    # Initialize previous tokens for the generated part (all masked)
-    first_state = visualization_token_states[0]
-    gen_length = first_state.shape[0] - prompt_length
-    previous_tokens = [mask_token_id] * gen_length
-
-    # Iterate over each intermediate state (skip the first state which is all masked)
-    for i, state_tensor in enumerate(visualization_token_states[1:]):
-        current_state_tensor = state_tensor[prompt_length:]
-        current_tokens = current_state_tensor.tolist()
-        colored_tokens = []
-        for idx, token_id in enumerate(current_tokens):
-            if token_id == mask_token_id:
-                colored_tokens.append((mask_token_str, "#444444"))
-            else:
-                if previous_tokens[idx] == mask_token_id:
-                    token_str = tokenizer.decode([token_id], skip_special_tokens=True)
-                    colored_tokens.append((token_str, "#66CC66"))
-                else:
-                    token_str = tokenizer.decode([token_id], skip_special_tokens=True)
-                    colored_tokens.append((token_str, "#6699CC"))
-        previous_tokens = current_tokens
-        intermediate_history[-1][1] = f"⏳ Step {i+1}/{num_states_to_process - 1}"
-        messages_for_chatbot_update = format_gradio_history_to_messages(intermediate_history)
-        time.sleep(delay)
-        yield messages_for_chatbot_update, colored_tokens, history
-
+    # --- 最终结果处理 ---
     print("Processing final result...")
     try:
+        output = output_container["output"]
         final_tokens_tensor = output.sequences[0][prompt_length:]
         final_tokens_list = final_tokens_tensor.tolist()
         colored_final = []
@@ -230,7 +232,7 @@ css = """
 
 with gr.Blocks(css=css, theme=gr.themes.Soft()) as demo:
     gr.Markdown("# Dream Diffusion Model Demo (Text-to-Text)")
-    gr.Markdown("Interact with the **Dream-v0-Instruct-7B** model in a multi-turn conversation and watch the diffusion process.")
+    gr.Markdown("Interact with the **Dream-v0-Instruct-7B** model in a multi-turn conversation and watch the diffusion process in real time.")
     gr.Markdown("Model link: [Dream-org/Dream-v0-Instruct-7B](https://huggingface.co/Dream-org/Dream-v0-Instruct-7B)")
 
     chat_history_state = gr.State([])
@@ -242,7 +244,6 @@ with gr.Blocks(css=css, theme=gr.themes.Soft()) as demo:
                 with gr.Row():
                     user_input_textbox = gr.Textbox(label="Your Message", placeholder="Type your message here...", scale=4, show_label=False, container=False)
                     send_button = gr.Button("Send", scale=1, variant="primary")
-
         with gr.Column(scale=2):
             vis_output_display = gr.HighlightedText(label="Diffusion Process Visualization", show_legend=True, combine_adjacent=False)
 
