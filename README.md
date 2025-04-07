@@ -1,10 +1,11 @@
 # Dream 7B
 [![Static Badge](https://img.shields.io/badge/📰-Blog-red)](https://hkunlp.github.io/blog/2025/dream/)
+[![Static Badge](https://img.shields.io/badge/📰-Demo-green)](https://huggingface.co/spaces/multimodalart/Dream)
 [![Static Badge](https://img.shields.io/badge/Hugging%20Face%20🤗-Dream%207B_Base-blue)
 ](https://huggingface.co/Dream-org/Dream-v0-Base-7B)
 [![Static Badge](https://img.shields.io/badge/Hugging%20Face%20🤗-Dream%207B_Instruct-blue)](https://huggingface.co/Dream-org/Dream-v0-Instruct-7B)
 
-Dream is a 7B diffusion large language model that achieves competitive performance comparable to leading autoregressive models with a simiar size.
+Dream is a 7B diffusion large language model that achieves competitive performance comparable to leading autoregressive models with a similar size.
 
 
 ## News
@@ -14,9 +15,11 @@ Dream is a 7B diffusion large language model that achieves competitive performan
 
 
 ## Installation
-Our implementation of Dream is based on the [Huggingface `transformers`](https://github.com/huggingface/transformers) library. You should first install transformers by `pip install transformers==4.46.2` and `torch==2.5.1` as Dream use the [SdpaAttention](https://pytorch.org/docs/stable/generated/torch.nn.functional.scaled_dot_product_attention.html) built in torch. Other versions of transformers and torch are not fully tested.
+Our implementation of Dream is based on the [Huggingface `transformers`](https://github.com/huggingface/transformers) library. You should first install transformers by `pip install transformers==4.46.2` and `torch==2.5.1` as Dream uses the [SdpaAttention](https://pytorch.org/docs/stable/generated/torch.nn.functional.scaled_dot_product_attention.html) built in torch. Other versions of transformers and torch are not been fully tested.
 
 Run the model requires a GPU with at least 20GB memory. 
+
+Thanks Apolinário for providing the online demo at https://huggingface.co/spaces/multimodalart/Dream.
 
 ## Usage
 We provide several demos to show the inference code of Dream. A simple implementation is:
@@ -63,14 +66,14 @@ print(generations[0].split(tokenizer.eos_token)[0])
  `model.diffusion_generate()` supports a subset of arguments in `model.generate()` and some diffusion-specific arguments:
 - `input_ids`: The input token ids.
 - `attention_mask`: The attention mask when performing batch inference.
-- `max_new_tokens`: The maximun tokens to generate. Note the context length (input+output) of Dream curently is 2048.
-- `output_history`: Whether return the output at each intermediate step.
+- `max_new_tokens`: The maximum tokens to generate. Note that the context length (input+output) of Dream currently is 2048.
+- `output_history`: Whether to return the output at each intermediate step.
 - `return_dict_in_generate`: The output format, mostly set to True.
 - `steps`: The diffusion timesteps. `max_new_tokens`/`steps` tokens will be generated at each step. Fewer steps yield faster but coarser results.
 - `temperature`: The value used to module the next token probabilities. By default 0.0. The smaller the value, the more accurate the results (e.g., in math or coding). The larger the value, the more diverse the results (e.g., in general conversation). If you notice repeated results, you might consider increasing the temperature.
 - `top_p`: If set to float < 1, only the smallest set of most probable tokens with probabilities that add up to top_p or higher are kept for generation. By default None. Control the diversity of generation. 
 - `top_k`: The number of highest probability vocabulary tokens to keep for top-k-filtering. By default None. Control the diversity of generation.
-- `alg`: The remasking strategy in diffusion sampling, controling the token generation order. Support one random strategy and three confidence-based strategies:
+- `alg`: The remasking strategy in diffusion sampling, controlling the token generation order. Support one random strategy and three confidence-based strategies:
     - `origin`: Token will be generated in a purely random order from https://arxiv.org/abs/2107.03006. The default strategy. Note this may degrade performance in some tasks.
     - `maskgit_plus`: Token will be generated based on the top1 confidence from https://arxiv.org/abs/2202.04200. 
     - `topk_margin`: Token will be generated based on the margin confidence by taking `top1 - top2` from https://arxiv.org/abs/2502.06768. 
