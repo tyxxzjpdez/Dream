@@ -66,9 +66,9 @@ def add_user_message_to_gradio_history(history, message):
     return history + [[message, None]]
 
 # --- Modified Main Generation Function with Real-Time Visualization ---
-def dream_generate_with_visualization(history, max_new_tokens, steps, temperature, top_p, top_k, delay):
+def dream_generate_with_visualization(history, max_new_tokens, steps, temperature, top_p, top_k, delay, alg, alg_temp):
     print("\n--- Starting dream_generate_with_visualization ---")
-    print(f"Parameters: max_new_tokens={max_new_tokens}, steps={steps}, temperature={temperature}, top_p={top_p}, top_k={top_k}, delay={delay}")
+    print(f"Parameters: max_new_tokens={max_new_tokens}, steps={steps}, temperature={temperature}, top_p={top_p}, top_k={top_k}, delay={delay}, alg={alg}, alg_temp={alg_temp}")
 
     messages_for_model = format_gradio_history_to_messages(history)
 
@@ -116,6 +116,8 @@ def dream_generate_with_visualization(history, max_new_tokens, steps, temperatur
                 temperature=temperature,
                 top_p=top_p,
                 top_k=effective_top_k,
+                alg=alg,
+                alg_temp=alg_temp,
                 generation_tokens_hook_func=my_generation_tokens_hook
             )
             output_container["output"] = output
@@ -208,12 +210,12 @@ def dream_generate_with_visualization(history, max_new_tokens, steps, temperatur
     print("--- Exiting dream_generate_with_visualization normally ---")
 
 # --- Bot Response Generator Wrapper ---
-def bot_response_generator(history, max_new_tokens, steps, temperature, top_p, top_k, delay):
+def bot_response_generator(history, max_new_tokens, steps, temperature, top_p, top_k, delay, alg, alg_temp):
     if not history or history[-1][1] is not None:
         print("Skipping bot response: No history or last message already has a response.")
         yield format_gradio_history_to_messages(history), "", history
         return
-    yield from dream_generate_with_visualization(history, max_new_tokens, steps, temperature, top_p, top_k, delay)
+    yield from dream_generate_with_visualization(history, max_new_tokens, steps, temperature, top_p, top_k, delay, alg, alg_temp)
 
 # --- User Message Submission Handler ---
 def user_message_submitted(message, history):
@@ -254,6 +256,8 @@ with gr.Blocks(css=css, theme=gr.themes.Soft()) as demo:
         top_p_slider = gr.Slider(0.0, 1.0, value=0.95, step=0.05, label="Top-p (0 = disabled)")
         top_k_slider = gr.Slider(0, 100, value=0, step=1, label="Top-k (0 = disabled)")
         delay_slider = gr.Slider(0.0, 0.5, value=0.02, step=0.01, label="Visualization Delay (seconds)")
+        alg_dropdown = gr.Dropdown(choices=["origin", "maskgit_plus", "topk_margin", "entropy"], value="entropy", label="Algorithm (alg)")
+        alg_temp_slider = gr.Slider(0.0, 1.0, value=0.1, step=0.01, label="Algorithm Temperature (alg_temp)")
 
     clear_button = gr.Button("Clear Chat")
 
@@ -267,7 +271,7 @@ with gr.Blocks(css=css, theme=gr.themes.Soft()) as demo:
         queue=False
     )
 
-    generation_params = [max_new_tokens_slider, steps_slider, temperature_slider, top_p_slider, top_k_slider, delay_slider]
+    generation_params = [max_new_tokens_slider, steps_slider, temperature_slider, top_p_slider, top_k_slider, delay_slider, alg_dropdown, alg_temp_slider]
 
     submit_event_args = dict(
         fn=user_message_submitted,
