@@ -61,6 +61,13 @@ generations = [
 print(generations[0].split(tokenizer.eos_token)[0])
 ```
 
+### Gradio demo
+
+First, install [Gradio](https://www.gradio.app) `pip install gradio`, and then you can directly run `python app.py`
+<div style="display: flex; justify-content: center; flex-wrap: wrap;">
+    <img src="./imgs/example_gradio.gif" style="width: 80%" />
+</div>
+
 ## Parameters of `diffusion_generate()` 
 
  `model.diffusion_generate()` supports a subset of arguments in `model.generate()` and some diffusion-specific arguments:
