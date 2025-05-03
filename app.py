@@ -9,7 +9,7 @@ import gradio as gr
 from transformers import AutoModel, AutoTokenizer
 import copy
 import traceback
-import threading  # 用于并行执行模型推理
+import threading 
 
 # --- Model Loading ---
 model_path = "Dream-org/Dream-v0-Instruct-7B"
@@ -17,8 +17,8 @@ device = 'cuda' if torch.cuda.is_available() else 'cpu'
 print(f"Using device: {device}")
 
 try:
-    print("Loading model with float32...")
-    dtype = torch.float32
+    print("Loading model with bfloat16...")
+    dtype = torch.bfloat16
     model = AutoModel.from_pretrained(model_path, torch_dtype=dtype, trust_remote_code=True)
     print(f"Model loaded successfully with {dtype}.")
 except Exception as e:
@@ -35,7 +35,6 @@ except Exception as e:
     print(traceback.format_exc())
     exit()
 
-# 定义mask token相关参数
 mask_token_id = tokenizer.mask_token_id if tokenizer.mask_token_id is not None else -100
 mask_token_str = "[MASK]"
 
@@ -91,19 +90,18 @@ def dream_generate_with_visualization(history, max_new_tokens, steps, temperatur
         yield format_gradio_history_to_messages(current_history), error_message, current_history
         return
 
-    # 存储中间状态列表
+    # save histories
     visualization_token_states = []
-    # Hook函数：在生成过程中保存中间状态
+    # Hook function for saving histories
     def my_generation_tokens_hook(step, x, logits):
         visualization_token_states.append(x[0].clone().cpu())
         return x
 
     effective_top_k = top_k if top_k > 0 else None
 
-    # 用于保存最终输出或错误信息
+    # save final output or error
     output_container = {}
 
-    # 定义推理函数，运行模型生成
     def generation_func():
         try:
             output = model.diffusion_generate(
@@ -124,21 +122,19 @@ def dream_generate_with_visualization(history, max_new_tokens, steps, temperatur
         except Exception as e:
             output_container["error"] = e
 
-    # 开启新线程进行模型推理
     gen_thread = threading.Thread(target=generation_func)
     gen_thread.start()
 
-    # 初始化中间显示变量
     intermediate_history = copy.deepcopy(history)
-    # 确定生成部分的长度
+
     while len(visualization_token_states) == 0:
-        time.sleep(0.01)  # 等待第一个状态产生
+        time.sleep(0.01)  # wait for the first generation
     first_state = visualization_token_states[0]
     gen_length = first_state.shape[0] - prompt_length
     previous_tokens = [mask_token_id] * gen_length
     last_yielded = 0
 
-    # 主循环：不断检查是否有新的中间状态
+    # check if new generations are added
     while gen_thread.is_alive() or last_yielded < len(visualization_token_states):
         current_length = len(visualization_token_states)
         while last_yielded < current_length:
@@ -146,7 +142,7 @@ def dream_generate_with_visualization(history, max_new_tokens, steps, temperatur
             current_state_tensor = state_tensor[prompt_length:]
             current_tokens = current_state_tensor.tolist()
             colored_tokens = []
-            # 构造彩色的token列表
+            # construct colorful token list
             for idx, token_id in enumerate(current_tokens):
                 if token_id == mask_token_id:
                     colored_tokens.append((mask_token_str, "#444444"))
@@ -158,17 +154,17 @@ def dream_generate_with_visualization(history, max_new_tokens, steps, temperatur
                         token_str = tokenizer.decode([token_id], skip_special_tokens=True)
                         colored_tokens.append((token_str, "#6699CC"))
             previous_tokens = current_tokens
-            # 更新最后显示的对话记录（可选：这里仅更新最后一步提示）
+            # update current states
             intermediate_history[-1][1] = f"⏳ Step {last_yielded}/{current_length - 1}"
             messages_for_chatbot_update = format_gradio_history_to_messages(intermediate_history)
             yield messages_for_chatbot_update, colored_tokens, history
             last_yielded += 1
         time.sleep(delay)
 
-    # 确保线程结束
+    # to ensure thread ends
     gen_thread.join()
 
-    # 检查是否有错误
+    # check if there is any error
     if "error" in output_container:
         error_message = f"Error during model generation: {output_container['error']}"
         current_history = copy.deepcopy(history)
@@ -179,7 +175,7 @@ def dream_generate_with_visualization(history, max_new_tokens, steps, temperatur
         yield format_gradio_history_to_messages(current_history), error_message, current_history
         return
 
-    # --- 最终结果处理 ---
+    # --- final result processing ---
     print("Processing final result...")
     try:
         output = output_container["output"]

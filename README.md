@@ -89,6 +89,28 @@ First, install [Gradio](https://www.gradio.app) `pip install gradio`, and then y
 - `generation_logits_hook_func`: a hook that can be user-defined to control the logits at each intermediate step, e.g., do some guidance.
 - `generation_tokens_hook_func`: a hook that can be user-defined to control the tokens at each intermediate step, e.g., print, infill, or other token control strategies. See `demo_token_control.py` for reference.
 
+
+## Evaluation
+The evaluation is based on [lm-evaluation-harness](https://github.com/EleutherAI/lm-evaluation-harness), so you should first install it with:
+```
+git clone --depth 1 https://github.com/EleutherAI/lm-evaluation-harness
+cd lm-evaluation-harness
+pip install -e .
+``` 
+Then, you can go to the `eval` directory and run the bash scripts.
+```
+cd eval
+
+# this scripts contains likelihood-based tasks: mmlu arc_easy arc_challenge hellaswag piqa gpqa_main_n_shot winogrande race
+bash eval_dream_gen_mc.sh
+
+# this scripts contains generation tasks: humaneval gsm8k_cot mbpp minerva_math bbh
+bash eval_dream_gen.sh
+
+# this scripts contains planning tasks: countdown, sudoku, trip-planning, their data are under `data`
+bash eval_dream_gen_planning.sh
+```
+
 ## Citation
 ```
 @misc{dream2025,
