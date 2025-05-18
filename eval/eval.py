@@ -307,8 +307,8 @@ class Dream(LM):
                         r = r.split(s)[0]
                     responses[i] = r
 
-            # if self.rank == 0:
-            #     print(f"Context:\n{contexts[0]}\nResponse:\n{responses[0]}\n")
+            if self.rank == 0:
+                print(f"Context:\n{contexts[0]}\nResponse:\n{responses[0]}\n")
 
             res.extend(responses)
             pbar.update(len(contexts))
@@ -491,7 +491,6 @@ class Dream(LM):
         ds = []
         ds = [{"prefix": req.args[0], "target": req.args[1]} for req in requests]
         ds = Dataset.from_list(ds)
-        print(ds[0])
         ds = ds.map(_tokenize)
         ds = ds.with_format("torch")
 
@@ -500,7 +499,7 @@ class Dream(LM):
             for elem in tqdm(ds, desc="Computing likelihood..."):
                 prefix = elem["prefix"]
                 target = elem["target"]
-                # likelihood calculations are modified from https://github.com/ML-GSAI/SMDM/blob/main/evaluate_diff.py
+
                 if self.nll_type == 'mc':
                     ll = -self._eval_target_nll_mc(prefix, target)
                     if self.log_type == 'union':
